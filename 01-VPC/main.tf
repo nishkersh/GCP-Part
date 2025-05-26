@@ -18,7 +18,7 @@ resource "google_compute_network" "custom_vpc" {
   auto_create_subnetworks = var.auto_create_subnetworks
   routing_mode            = var.routing_mode
   mtu                     = var.mtu
-  delete_default_internet_gateway_routes = var.delete_default_internet_gateway_routes
+  delete_default_routes_on_create = var.delete_default_internet_gateway_routes
 
   dynamic "log_config" {
     for_each = var.enable_flow_logs && var.flow_logs_config != null ? [var.flow_logs_config] : []
@@ -30,7 +30,7 @@ resource "google_compute_network" "custom_vpc" {
     }
   }
 
-  labels = var.labels
+
 }
 
 resource "google_compute_subnetwork" "custom_subnets" {
@@ -64,7 +64,9 @@ resource "google_compute_subnetwork" "custom_subnets" {
       metadata_fields      = log_config.value.metadata_fields
     }
   }
-  labels = var.labels
+  // The 'labels' attribute is not a supported argument for the google_compute_subnetwork resource.
+  // Labels can be applied to the parent google_compute_network (which uses var.labels in this configuration)
+  // or to individual resources deployed within the subnet, but not directly to the subnet resource itself.
 }
 
 // --- Default Firewall Rules ---
@@ -83,7 +85,7 @@ resource "google_compute_firewall" "default_deny_all_ingress" {
   }
   source_ranges = ["0.0.0.0/0"] // Applies to all sources
   description   = "Default deny all ingress traffic unless explicitly allowed by higher priority rules."
-  labels        = var.labels
+
 }
 
 resource "google_compute_firewall" "default_allow_all_egress" {
@@ -98,7 +100,7 @@ resource "google_compute_firewall" "default_allow_all_egress" {
   }
   destination_ranges = ["0.0.0.0/0"]
   description        = "Default allow all egress traffic. Outbound traffic should be controlled by NAT and specific deny rules if needed."
-  labels             = var.labels
+
 }
 
 resource "google_compute_firewall" "allow_internal" {
@@ -121,7 +123,7 @@ resource "google_compute_firewall" "allow_internal" {
 
   source_ranges = [for snet in var.subnets : snet.ip_cidr_range] # Allow from all defined subnets within the VPC
   description   = "Allow all internal traffic within the VPC network."
-  labels        = var.labels
+ 
 }
 
 // --- Custom Firewall Rules ---
@@ -165,7 +167,7 @@ resource "google_compute_firewall" "custom_rules" {
       metadata = log_config.value.metadata
     }
   }
-  labels = var.labels
+
 }
 
 
@@ -176,7 +178,6 @@ resource "google_compute_router" "nat_router" {
   name    = "${var.network_name}-${var.nat_router_name}"
   network = google_compute_network.custom_vpc.self_link
   region  = var.region
-  labels  = var.labels
 }
 
 resource "google_compute_router_nat" "nat_gateway" {
@@ -208,5 +209,4 @@ resource "google_compute_router_nat" "nat_gateway" {
     enable = true                # Enable logging for NAT
     filter = "ERRORS_ONLY"       # Log only errors, or "TRANSLATIONS_ONLY", "ALL"
   }
-  labels = var.labels
 }

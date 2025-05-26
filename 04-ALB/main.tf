@@ -53,7 +53,7 @@ resource "google_compute_managed_ssl_certificate" "default" {
   managed {
     domains = var.domain_names
   }
-  labels = var.labels
+
   # lifecycle {
   #   create_before_destroy = true # May be needed if domains change often
   # }
@@ -101,7 +101,7 @@ resource "google_compute_health_check" "default" {
       port = local.health_check_port_final
     }
   }
-  labels = var.labels
+
 }
 
 // --- Backend Service ---
@@ -149,7 +149,7 @@ resource "google_compute_backend_service" "default" {
   }
 
   security_policy = var.cloud_armor_policy_self_link
-  labels          = var.labels
+
 }
 
 // --- URL Map ---
@@ -158,7 +158,7 @@ resource "google_compute_url_map" "default" {
   name    = local.full_url_map_name
   default_service = google_compute_backend_service.default.self_link
   # Can add path_matchers and host_rules here for advanced routing
-  labels = var.labels
+
 }
 
 // --- Target HTTPS Proxy ---
@@ -168,8 +168,6 @@ resource "google_compute_target_https_proxy" "default" {
   url_map = google_compute_url_map.default.self_link
   ssl_certificates = [google_compute_managed_ssl_certificate.default.self_link]
   ssl_policy       = var.ssl_policy
-  quic_override    = var.quic_override
-  labels           = var.labels
 }
 
 // --- Global Forwarding Rule (HTTPS) ---
@@ -195,7 +193,6 @@ resource "google_compute_url_map" "http_redirect" {
     strip_query            = false
     redirect_response_code = "MOVED_PERMANENTLY_DEFAULT" # 301
   }
-  labels = var.labels
 }
 
 resource "google_compute_target_http_proxy" "http_redirect" {
@@ -203,7 +200,6 @@ resource "google_compute_target_http_proxy" "http_redirect" {
   project = var.project_id
   name    = local.full_http_target_proxy_name
   url_map = google_compute_url_map.http_redirect[0].self_link
-  labels  = var.labels
 }
 
 resource "google_compute_global_forwarding_rule" "http" {

@@ -5,17 +5,6 @@ locals {
 
   effective_workload_identity_pool = coalesce(var.workload_identity_pool, "${var.project_id}.svc.id.goog")
 
-  # Determine master authorized networks configuration
-  master_auth_networks_config = var.enable_public_endpoint || (var.enable_private_endpoint && length(var.master_authorized_networks) > 0) ? {
-    dynamic "cidr_blocks" {
-      for_each = var.master_authorized_networks
-      content {
-        display_name = cidr_blocks.key
-        cidr_block   = cidr_blocks.value
-      }
-    }
-  } : null
-
   # Private cluster specific configurations
   private_cluster_config_merged = {
     enable_private_nodes         = var.enable_private_nodes
@@ -114,11 +103,24 @@ resource "google_container_cluster" "primary" {
     enable_private_nodes         = local.private_cluster_config_merged.enable_private_nodes
     enable_private_endpoint      = local.private_cluster_config_merged.enable_private_endpoint
     master_ipv4_cidr_block       = local.private_cluster_config_merged.master_ipv4_cidr_block
-    master_global_access_enabled = local.private_cluster_config_merged.master_global_access_enabled
+    master_global_access_config {
+      enabled = local.private_cluster_config_merged.master_global_access_enabled
+    }
   }
 
   # Public endpoint access control (if public endpoint is enabled)
-  master_authorized_networks_config = local.master_auth_networks_config
+  dynamic "master_authorized_networks_config" {
+    for_each = var.enable_public_endpoint || (var.enable_private_endpoint && length(var.master_authorized_networks) > 0) ? [true] : []
+    content {
+      dynamic "cidr_blocks" {
+        for_each = var.master_authorized_networks
+        content {
+          display_name = cidr_blocks.key
+          cidr_block   = cidr_blocks.value
+        }
+      }
+    }
+  }
 
   # Network Policy
   network_policy {
@@ -127,7 +129,7 @@ resource "google_container_cluster" "primary" {
   }
 
   # Dataplane V2
-  enable_dataplane_v2 = var.enable_dataplane_v2
+  datapath_provider = var.enable_dataplane_v2 ? "ADVANCED_DATAPATH" : "DATAPATH_PROVIDER_UNSPECIFIED"
 
   # Addons
   addons_config {
@@ -181,7 +183,6 @@ resource "google_container_cluster" "primary" {
   }
 
   # Labels
-  labels                  = var.labels
   resource_labels         = var.cluster_resource_labels # For underlying GCE instances
   deletion_protection     = false                     # Set to true for production clusters
 
@@ -214,12 +215,21 @@ resource "google_service_account" "node_pool_sa" {
 
 resource "google_project_iam_member" "node_pool_sa_roles" {
   for_each = {
-    for sa_key, sa_config in var.node_pools : sa_key => sa_config
-    if sa_config.service_account == null # Only for SAs created by this module
-    for role in var.node_pools_service_account_roles :
-    "${sa_key}-${role}" => {
-      sa_email = google_service_account.node_pool_sa[sa_key].email
-      role     = role
+    for item in flatten([
+      for sa_key, sa_config in var.node_pools :
+      [
+        for role in var.node_pools_service_account_roles :
+        {
+          sa_key   = sa_key,
+          sa_config = sa_config,
+          role     = role
+        }
+        if sa_config.service_account == null # Only for SAs created by this module
+      ]
+    ]) :
+    "${item.sa_key}-${item.role}" => {
+      sa_email = google_service_account.node_pool_sa[item.sa_key].email
+      role     = item.role
     }
   }
   project = var.project_id

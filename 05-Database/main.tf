@@ -112,7 +112,6 @@ resource "google_sql_database_instance" "instance" {
       for_each = var.db_flags
     }
 
-    labels = var.labels # Instance-level labels
 
     dynamic "maintenance_window" {
       for_each = var.maintenance_window_day != null && var.maintenance_window_hour != null ? [1] : []
